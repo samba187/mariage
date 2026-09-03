@@ -58,6 +58,14 @@ export default function JoinPage({ params }: { params: Promise<{ code: string }>
       toast.error(error.message);
       return;
     }
+
+    // Permet de retrouver cet espace si la session anonyme est perdue.
+    try {
+      localStorage.setItem("last-invite-code", code);
+    } catch {
+      // stockage indisponible
+    }
+
     toast.success("Vous avez rejoint l'espace partagé");
     router.push("/");
     router.refresh();

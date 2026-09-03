@@ -31,6 +31,28 @@ interface HouseholdContextValue {
 
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
 
+const INVITE_CODE_KEY = "last-invite-code";
+
+/**
+ * Le code d'invitation est conservé localement : c'est le seul moyen de
+ * retrouver l'espace du couple si la session anonyme est perdue.
+ */
+function rememberInviteCode(code: string) {
+  try {
+    localStorage.setItem(INVITE_CODE_KEY, code);
+  } catch {
+    // stockage indisponible : la reprise automatique ne sera pas possible
+  }
+}
+
+function rememberedInviteCode(): string | null {
+  try {
+    return localStorage.getItem(INVITE_CODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const [household, setHousehold] = useState<Household | null>(null);
@@ -42,7 +64,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       data: { user: currentUser },
     } = await supabase.auth.getUser();
 
+    // Session irrécupérable (jeton expiré dont le rafraîchissement échoue) :
+    // on repart d'une session propre plutôt que de rester bloqué avec un
+    // jeton mort, qui ferait échouer silencieusement toutes les écritures.
     if (!currentUser) {
+      await supabase.auth.signOut().catch(() => undefined);
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) {
         setLoading(false);
@@ -70,6 +96,21 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     const householdId = membership?.household_id;
 
     if (!householdId) {
+      // Cette session n'a pas d'espace. Avant d'en créer un vide, on tente de
+      // rejoindre le dernier espace connu sur cet appareil : sans ça, une
+      // session perdue ferait « disparaître » toutes les données.
+      const knownCode = rememberedInviteCode();
+      if (knownCode) {
+        const { data: rejoined } = await supabase
+          .rpc("join_household_by_code", { code: knownCode, member_name: null })
+          .single();
+        if (rejoined) {
+          setHousehold(rejoined as Household);
+          setLoading(false);
+          return;
+        }
+      }
+
       const { data: newHousehold, error: createError } = await supabase
         .rpc("create_household")
         .single();
@@ -77,6 +118,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
+      rememberInviteCode((newHousehold as Household).invite_code);
       setHousehold(newHousehold as Household);
       setLoading(false);
       return;
@@ -88,6 +130,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       .eq("id", householdId)
       .single();
 
+    if (householdData) rememberInviteCode(householdData.invite_code);
     setHousehold(householdData);
     setLoading(false);
   }, [supabase]);
