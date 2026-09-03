@@ -11,7 +11,7 @@ import { Pencil, Trash2, X } from "lucide-react";
 interface TablesListProps {
   tables: WeddingTable[];
   guests: Guest[];
-  onUpdateTable: (id: string, input: Partial<TableInput>) => Promise<void>;
+  onUpdateTable: (id: string, input: Partial<TableInput>) => Promise<unknown>;
   onDeleteTable: (id: string) => Promise<void>;
   onUnassignGuest: (guestId: string) => Promise<void>;
 }

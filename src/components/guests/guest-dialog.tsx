@@ -26,7 +26,7 @@ import { Plus } from "lucide-react";
 
 interface GuestDialogProps {
   guest?: Guest;
-  onSave: (input: GuestInput) => Promise<void>;
+  onSave: (input: GuestInput) => Promise<unknown>;
   trigger?: React.ReactNode;
 }
 

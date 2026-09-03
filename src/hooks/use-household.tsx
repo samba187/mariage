@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/supabase/session";
+import { writeChecked } from "@/lib/supabase/write";
 import type { Household } from "@/types/database";
 import type { User } from "@supabase/supabase-js";
 
@@ -37,6 +39,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    await ensureFreshSession(supabase);
     let {
       data: { user: currentUser },
     } = await supabase.auth.getUser();
@@ -125,8 +128,16 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const updateHousehold = useCallback(
     async (input: HouseholdSettings) => {
       if (!household) return;
+      const previous = household;
       setHousehold((h) => (h ? { ...h, ...input } : h));
-      await supabase.from("households").update(input).eq("id", household.id);
+
+      const ok = await writeChecked(supabase, () =>
+        supabase.from("households").update(input).eq("id", previous.id).select()
+      );
+
+      // Écriture refusée : on remet l'affichage en accord avec la base plutôt
+      // que de laisser croire à une sauvegarde.
+      if (!ok) setHousehold(previous);
     },
     [household, supabase]
   );

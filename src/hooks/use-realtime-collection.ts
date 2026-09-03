@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/supabase/session";
 import { toast } from "sonner";
 
 interface Row {
@@ -26,6 +27,7 @@ export function useRealtimeCollection<T extends Row>(
 
   const load = useCallback(async () => {
     if (!householdId) return;
+    await ensureFreshSession(supabase);
     const { data, error } = await supabase
       .from(table)
       .select("*")

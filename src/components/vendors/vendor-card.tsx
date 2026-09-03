@@ -39,7 +39,7 @@ interface VendorCardProps {
   onUpdateVendor: (id: string, input: Partial<VendorInput>) => Promise<void>;
   onDeleteVendor: (id: string) => Promise<void>;
   onAddPayments: (vendorId: string, drafts: PaymentDraft[]) => Promise<void>;
-  onUpdatePayment: (id: string, draft: Partial<PaymentDraft>) => Promise<void>;
+  onUpdatePayment: (id: string, draft: Partial<PaymentDraft>) => Promise<unknown>;
   onTogglePaid: (payment: VendorPayment) => Promise<void>;
   onDeletePayment: (id: string) => Promise<void>;
 }

@@ -27,7 +27,7 @@ interface PaymentDialogProps {
   payment?: VendorPayment;
   weddingDate: string | null;
   defaultAmount?: number;
-  onSave: (drafts: PaymentDraft[]) => Promise<void>;
+  onSave: (drafts: PaymentDraft[]) => Promise<unknown>;
   trigger?: React.ReactNode;
 }
 

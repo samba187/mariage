@@ -40,7 +40,7 @@ const TYPE_LABEL: Record<Guest["type"], string> = {
 interface GuestTableProps {
   guests: Guest[];
   tables: WeddingTable[];
-  onUpdate: (id: string, input: Partial<GuestInput>) => Promise<void>;
+  onUpdate: (id: string, input: Partial<GuestInput>) => Promise<unknown>;
   onDelete: (id: string) => Promise<void>;
 }
 

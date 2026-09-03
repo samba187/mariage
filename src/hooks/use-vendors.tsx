@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { writeChecked } from "@/lib/supabase/write";
 import { useRealtimeCollection } from "@/hooks/use-realtime-collection";
 import type { Vendor, VendorPayment } from "@/types/database";
 import { toast } from "sonner";
@@ -80,52 +81,57 @@ export function useVendors(householdId: string | undefined) {
     }
 
     if (rows.length > 0) {
-      const { error: payError } = await supabase.from("vendor_payments").insert(rows);
-      if (payError) toast.error(payError.message);
+      await writeChecked(supabase, () => supabase.from("vendor_payments").insert(rows).select());
     }
 
     toast.success("Prestataire ajouté");
   }
 
   async function updateVendor(id: string, input: Partial<VendorInput>) {
-    const { error } = await supabase.from("vendors").update(input).eq("id", id);
-    if (error) toast.error(error.message);
+    await writeChecked(supabase, () =>
+      supabase.from("vendors").update(input).eq("id", id).select()
+    );
   }
 
   async function deleteVendor(id: string) {
-    const { error } = await supabase.from("vendors").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else toast.success("Prestataire supprimé");
+    const ok = await writeChecked(supabase, () =>
+      supabase.from("vendors").delete().eq("id", id).select()
+    );
+    if (ok) toast.success("Prestataire supprimé");
   }
 
   /** Accepte un versement unique ou une série mensuelle générée d'un coup. */
   async function addPayments(vendorId: string, drafts: Array<Omit<PaymentInput, "vendor_id">>) {
     if (!householdId || drafts.length === 0) return;
-    const { error } = await supabase
-      .from("vendor_payments")
-      .insert(drafts.map((d) => ({ ...d, vendor_id: vendorId, household_id: householdId })));
-    if (error) toast.error(error.message);
-    else toast.success(drafts.length === 1 ? "Versement ajouté" : `${drafts.length} versements ajoutés`);
+    const ok = await writeChecked(supabase, () =>
+      supabase
+        .from("vendor_payments")
+        .insert(drafts.map((d) => ({ ...d, vendor_id: vendorId, household_id: householdId })))
+        .select()
+    );
+    if (ok) toast.success(drafts.length === 1 ? "Versement ajouté" : `${drafts.length} versements ajoutés`);
   }
 
   async function updatePayment(id: string, input: Partial<PaymentInput>) {
-    const { error } = await supabase.from("vendor_payments").update(input).eq("id", id);
-    if (error) toast.error(error.message);
+    return writeChecked(supabase, () =>
+      supabase.from("vendor_payments").update(input).eq("id", id).select()
+    );
   }
 
   async function togglePaid(payment: VendorPayment) {
     const nowPaid = !payment.paid;
-    await updatePayment(payment.id, {
+    const ok = await updatePayment(payment.id, {
       paid: nowPaid,
       paid_at: nowPaid ? new Date().toISOString().slice(0, 10) : null,
     });
-    toast.success(nowPaid ? "Versement marqué payé" : "Versement remis en attente");
+    if (ok) toast.success(nowPaid ? "Versement marqué payé" : "Versement remis en attente");
   }
 
   async function deletePayment(id: string) {
-    const { error } = await supabase.from("vendor_payments").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else toast.success("Échéance supprimée");
+    const ok = await writeChecked(supabase, () =>
+      supabase.from("vendor_payments").delete().eq("id", id).select()
+    );
+    if (ok) toast.success("Versement supprimé");
   }
 
   return {

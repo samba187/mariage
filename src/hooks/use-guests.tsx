@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { writeChecked } from "@/lib/supabase/write";
 import { useRealtimeCollection } from "@/hooks/use-realtime-collection";
 import type { Guest } from "@/types/database";
 import { toast } from "sonner";
@@ -15,20 +16,23 @@ export function useGuests(householdId: string | undefined) {
 
   async function addGuest(input: GuestInput) {
     if (!householdId) return;
-    const { error } = await supabase.from("guests").insert({ ...input, household_id: householdId });
-    if (error) toast.error(error.message);
-    else toast.success("Invité ajouté");
+    const ok = await writeChecked(supabase, () =>
+      supabase.from("guests").insert({ ...input, household_id: householdId }).select()
+    );
+    if (ok) toast.success("Invité ajouté");
   }
 
   async function updateGuest(id: string, input: Partial<GuestInput>) {
-    const { error } = await supabase.from("guests").update(input).eq("id", id);
-    if (error) toast.error(error.message);
+    return writeChecked(supabase, () =>
+      supabase.from("guests").update(input).eq("id", id).select()
+    );
   }
 
   async function deleteGuest(id: string) {
-    const { error } = await supabase.from("guests").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else toast.success("Invité supprimé");
+    const ok = await writeChecked(supabase, () =>
+      supabase.from("guests").delete().eq("id", id).select()
+    );
+    if (ok) toast.success("Invité supprimé");
   }
 
   return { guests, loading, addGuest, updateGuest, deleteGuest };

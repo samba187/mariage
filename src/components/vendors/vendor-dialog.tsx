@@ -31,7 +31,7 @@ import { Plus } from "lucide-react";
 interface VendorDialogProps {
   vendor?: Vendor;
   weddingDate: string | null;
-  onSave: (input: VendorInput, schedule?: InitialSchedule) => Promise<void>;
+  onSave: (input: VendorInput, schedule?: InitialSchedule) => Promise<unknown>;
   trigger?: React.ReactNode;
 }
 

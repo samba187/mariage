@@ -25,7 +25,7 @@ import { Plus } from "lucide-react";
 
 interface TableDialogProps {
   table?: WeddingTable;
-  onSave: (input: TableInput) => Promise<void>;
+  onSave: (input: TableInput) => Promise<unknown>;
   trigger?: React.ReactNode;
   nextTableNumber?: number;
 }
