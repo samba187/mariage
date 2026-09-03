@@ -46,6 +46,16 @@ export function useRealtimeCollection<T extends Row>(
     return () => window.removeEventListener("online", load);
   }, [load]);
 
+  // Un jeton expiré ne provoque pas d'erreur : le RLS filtre simplement tout et
+  // la requête renvoie une liste vide. Sans ce rechargement au rafraîchissement
+  // du jeton, l'utilisateur croirait ses données perdues.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") load();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [load, supabase]);
+
   useEffect(() => {
     if (!householdId) return;
     const channel = supabase

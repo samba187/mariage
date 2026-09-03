@@ -51,13 +51,20 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(currentUser);
 
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from("household_members")
       .select("household_id")
       .eq("user_id", currentUser!.id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // Ne jamais créer un foyer sur une lecture en échec : ça masquerait les
+    // données existantes derrière un espace vide.
+    if (membershipError) {
+      setLoading(false);
+      return;
+    }
 
     const householdId = membership?.household_id;
 
@@ -88,6 +95,15 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- session + foyer au montage
     load();
   }, [load]);
+
+  // Voir use-realtime-collection : un jeton expiré renvoie des résultats vides
+  // sans erreur, il faut donc recharger dès qu'il est rafraîchi.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED") load();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [load, supabase]);
 
   useEffect(() => {
     if (!household) return;
