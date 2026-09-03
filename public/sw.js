@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const DATA_CACHE = `data-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -53,7 +53,18 @@ self.addEventListener("fetch", (event) => {
           caches.open(APP_SHELL_CACHE).then((cache) => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match(OFFLINE_URL)))
+        .catch(async () => {
+          // Il faut impérativement renvoyer une Response : retourner undefined
+          // fait échouer la navigation (« cette page n'a pas pu être chargée »).
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          const offline = await caches.match(OFFLINE_URL);
+          if (offline) return offline;
+          return new Response("Hors ligne. Réessayez une fois la connexion revenue.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        })
     );
     return;
   }

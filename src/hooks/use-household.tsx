@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { ensureFreshSession } from "@/lib/supabase/session";
 import { writeChecked } from "@/lib/supabase/write";
 import type { Household } from "@/types/database";
 import type { User } from "@supabase/supabase-js";
@@ -39,7 +38,6 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    await ensureFreshSession(supabase);
     let {
       data: { user: currentUser },
     } = await supabase.auth.getUser();
