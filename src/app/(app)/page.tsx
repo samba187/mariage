@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { useHousehold } from "@/hooks/use-household";
 import { useVendors } from "@/hooks/use-vendors";
 import { useGuests } from "@/hooks/use-guests";
+import { useDueReminders } from "@/hooks/use-due-reminders";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ export default function DashboardPage() {
   const { guests } = useGuests(household?.id);
 
   const weddingDate = household?.wedding_date ?? null;
+
+  useDueReminders(payments, weddingDate);
 
   const totals = useMemo(() => {
     let engaged = 0;
