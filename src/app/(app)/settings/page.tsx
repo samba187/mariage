@@ -209,7 +209,7 @@ export default function SettingsPage() {
           )}
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <Smartphone className="mt-0.5 size-3.5 shrink-0" />
-            À activer sur chaque appareil. App fermée : nécessite le déploiement en ligne.
+            À activer sur chaque appareil, même app fermée.
           </p>
         </CardContent>
       </Card>
