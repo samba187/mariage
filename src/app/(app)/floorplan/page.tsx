@@ -76,7 +76,7 @@ export default function FloorplanPage() {
   const loading = guestsLoading || tablesLoading;
 
   return (
-    <div className="flex h-svh flex-col">
+    <div className="flex min-h-full flex-col">
       <div className="border-b p-4 md:p-6 md:pb-0">
         <h1 className="text-2xl font-semibold tracking-tight">Plan de salle</h1>
       </div>
@@ -92,7 +92,11 @@ export default function FloorplanPage() {
         landmarkCount={household.landmarks.length}
       />
 
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4 md:flex-row md:p-6">
+      {/* Pas de hauteur ni d'overflow figés ici : sur mobile, le panneau
+          invités passe sous le plan et doit rester atteignable en défilant
+          la page. Une hauteur bloquée + overflow-hidden le rendait invisible
+          et impossible à faire défiler. */}
+      <div className="flex flex-1 flex-col gap-4 p-4 md:flex-row md:p-6">
         <div className="min-w-0 flex-1">
           {loading ? (
             <Skeleton className="w-full rounded-lg" style={{ height: "min(70vh, 640px)" }} />
