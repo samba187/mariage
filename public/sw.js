@@ -1,6 +1,5 @@
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
-const DATA_CACHE = `data-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
 const APP_SHELL_URLS = [
@@ -25,9 +24,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((key) => key !== APP_SHELL_CACHE && key !== DATA_CACHE).map((key) => caches.delete(key)))
-      )
+      // Supprime toutes les versions précédentes, y compris les anciens
+      // caches de données Supabase devenus nuisibles.
+      .then((keys) => Promise.all(keys.filter((key) => key !== APP_SHELL_CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -69,23 +68,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Lectures Supabase : cache puis revalidation, pour consulter hors-ligne.
-  // Les écritures (POST/PATCH/DELETE) ne sont jamais interceptées.
-  if (url.hostname.endsWith(".supabase.co") && url.pathname.startsWith("/rest/")) {
-    event.respondWith(
-      caches.open(DATA_CACHE).then(async (cache) => {
-        const cached = await cache.match(request);
-        const network = fetch(request)
-          .then((response) => {
-            if (response.ok) cache.put(request, response.clone());
-            return response;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
-    );
-    return;
-  }
+  // Les appels Supabase ne sont JAMAIS mis en cache.
+  //
+  // Ces réponses dépendent de la session et changent en permanence. Les
+  // servir depuis un cache renvoyait des listes périmées : des éléments
+  // supprimés réapparaissaient, et deux requêtes sur la même table pouvaient
+  // se contredire. Une consultation hors-ligne ne vaut pas ce risque.
+  if (url.hostname.endsWith(".supabase.co")) return;
 
   // Assets de build et icônes : cache d'abord.
   if (url.pathname.startsWith("/_next/static") || url.pathname.startsWith("/icons/")) {
