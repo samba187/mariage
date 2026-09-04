@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ensureSession } from "@/lib/supabase/session";
 import { writeChecked } from "@/lib/supabase/write";
 import type { Household } from "@/types/database";
 import type { User } from "@supabase/supabase-js";
@@ -60,28 +61,18 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    let {
-      data: { user: currentUser },
-    } = await supabase.auth.getUser();
-
-    // Session irrécupérable (jeton expiré dont le rafraîchissement échoue) :
-    // on repart d'une session propre plutôt que de rester bloqué avec un
-    // jeton mort, qui ferait échouer silencieusement toutes les écritures.
-    if (!currentUser) {
-      await supabase.auth.signOut().catch(() => undefined);
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) {
-        setLoading(false);
-        return;
-      }
-      currentUser = data.user;
+    const session = await ensureSession(supabase);
+    if (!session) {
+      setLoading(false);
+      return;
     }
+    const currentUser = session.user;
     setUser(currentUser);
 
     const { data: membership, error: membershipError } = await supabase
       .from("household_members")
       .select("household_id")
-      .eq("user_id", currentUser!.id)
+      .eq("user_id", currentUser.id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

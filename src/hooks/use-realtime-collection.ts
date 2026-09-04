@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ensureSession } from "@/lib/supabase/session";
 import { toast } from "sonner";
 
 interface Row {
@@ -26,6 +27,9 @@ export function useRealtimeCollection<T extends Row>(
 
   const load = useCallback(async () => {
     if (!householdId) return;
+    // Sans session valable, la requête partirait avec la clé anonyme et
+    // renverrait une liste vide sans erreur.
+    await ensureSession(supabase);
     const { data, error } = await supabase
       .from(table)
       .select("*")
