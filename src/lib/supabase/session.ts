@@ -15,6 +15,28 @@ let pending: Promise<Session | null> | null = null;
  * refresh token est à usage unique, deux rafraîchissements simultanés le
  * détruiraient et condamneraient la session.
  */
+let refreshing: Promise<Session | null> | null = null;
+
+/**
+ * Force un rafraîchissement, en dernier recours après une écriture refusée.
+ *
+ * Utile quand l'horloge de l'appareil est décalée : le jeton paraît valide
+ * localement alors que le serveur le rejette (ou l'inverse). Strictement
+ * sérialisé, pour la même raison que ci-dessus.
+ */
+export function forceRefresh(supabase: SupabaseClient): Promise<Session | null> {
+  if (!refreshing) {
+    refreshing = supabase.auth
+      .refreshSession()
+      .then(({ data }) => data.session ?? null)
+      .catch(() => null)
+      .finally(() => {
+        refreshing = null;
+      });
+  }
+  return refreshing;
+}
+
 export function ensureSession(supabase: SupabaseClient): Promise<Session | null> {
   if (!pending) {
     pending = (async () => {

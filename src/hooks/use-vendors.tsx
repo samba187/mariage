@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { ensureSession, forceRefresh } from "@/lib/supabase/session";
 import { writeChecked } from "@/lib/supabase/write";
 import { useRealtimeCollection } from "@/hooks/use-realtime-collection";
 import type { Vendor, VendorPayment } from "@/types/database";
@@ -42,11 +43,21 @@ export function useVendors(householdId: string | undefined) {
 
   async function addVendor(input: VendorInput, schedule?: InitialSchedule) {
     if (!householdId) return;
-    const { data: vendor, error } = await supabase
-      .from("vendors")
-      .insert({ ...input, household_id: householdId })
-      .select()
-      .single();
+    if (!(await ensureSession(supabase))) {
+      toast.error("Session expirée. Rechargez la page.");
+      return;
+    }
+
+    const insert = () =>
+      supabase.from("vendors").insert({ ...input, household_id: householdId }).select().single();
+
+    let { data: vendor, error } = await insert();
+
+    // Refus RLS : l'identité n'a pas été reconnue. On rafraîchit une fois
+    // avant d'abandonner (utile si l'horloge de l'appareil est décalée).
+    if (error?.code === "42501" && (await forceRefresh(supabase))) {
+      ({ data: vendor, error } = await insert());
+    }
 
     if (error || !vendor) {
       toast.error(error?.message ?? "Erreur lors de l'ajout");

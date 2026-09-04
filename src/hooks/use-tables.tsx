@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { ensureSession, forceRefresh } from "@/lib/supabase/session";
 import { writeChecked } from "@/lib/supabase/write";
 import { useRealtimeCollection } from "@/hooks/use-realtime-collection";
 import type { WeddingTable } from "@/types/database";
@@ -18,11 +19,18 @@ export function useTables(householdId: string | undefined) {
 
   async function addTable(input: TableInput) {
     if (!householdId) return;
-    const { data, error } = await supabase
-      .from("wedding_tables")
-      .insert({ ...input, household_id: householdId })
-      .select()
-      .single();
+    if (!(await ensureSession(supabase))) {
+      toast.error("Session expirée. Rechargez la page.");
+      return;
+    }
+
+    const insert = () =>
+      supabase.from("wedding_tables").insert({ ...input, household_id: householdId }).select().single();
+
+    let { data, error } = await insert();
+    if (error?.code === "42501" && (await forceRefresh(supabase))) {
+      ({ data, error } = await insert());
+    }
     if (error) toast.error(error.message);
     return data as WeddingTable | undefined;
   }
