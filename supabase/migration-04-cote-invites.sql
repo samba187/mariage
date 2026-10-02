@@ -13,11 +13,17 @@ alter table guests
 
 -- 2. Import de la liste d'invités dans le foyer le plus ancien.
 --    Un prénom déjà présent dans le foyer n'est pas ré-inséré.
+-- Version précédente de l'import : une seule entrée pour toute la famille de Rafiq.
+delete from guests where first_name = 'Rafiq (+ mere + hamza + zouina)' and table_id is null;
+
 insert into guests (household_id, first_name, last_name, type, rsvp)
 select h.id, n.first_name, '', 'adult', 'pending'
 from (select id from households order by created_at asc limit 1) h
 cross join (values
-    ('Rafiq (+ mere + hamza + zouina)'),
+    ('Rafiq'),
+    ('Mère de Rafiq'),
+    ('Hamza'),
+    ('Zouina'),
     ('Rayane'),
     ('Kantra'),
     ('Moussa'),
