@@ -22,6 +22,8 @@ import {
 import { GROUP_TAGS } from "@/types/database";
 import type { Guest } from "@/types/database";
 import type { GuestInput } from "@/hooks/use-guests";
+import { useHousehold } from "@/hooks/use-household";
+import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
 import { Plus } from "lucide-react";
 
 interface GuestDialogProps {
@@ -38,9 +40,11 @@ const emptyForm: GuestInput = {
   group_tag: GROUP_TAGS[0],
   table_id: null,
   seat_index: null,
+  side: null,
 };
 
 export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
+  const { household } = useHousehold();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<GuestInput>(guest ?? emptyForm);
@@ -89,7 +93,6 @@ export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
                 <Label htmlFor="g-last">Nom</Label>
                 <Input
                   id="g-last"
-                  required
                   value={form.last_name}
                   onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
                 />
@@ -123,6 +126,27 @@ export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="g-side">Invité de</Label>
+              <Select
+                value={form.side ?? SIDE_NONE}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, side: v === SIDE_NONE ? null : (v as Guest["side"]) }))
+                }
+              >
+                <SelectTrigger id="g-side" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sideOptions(household).map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

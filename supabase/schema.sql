@@ -99,6 +99,7 @@ create table guests (
   group_tag text,
   table_id uuid references wedding_tables(id) on delete set null,
   seat_index integer,
+  side text check (side is null or side in ('partner1', 'partner2')),
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );

@@ -1,5 +1,7 @@
 export type GuestType = "adult" | "child" | "baby";
 export type RsvpStatus = "pending" | "confirmed" | "declined";
+/** Côté d'un invité : partner1 / partner2 du foyer, ou null si non précisé. */
+export type GuestSide = "partner1" | "partner2";
 export type TableType = "round" | "rectangular";
 export type RoomShape = "rectangle" | "square" | "free";
 export type LandmarkType = "dance_floor" | "dj" | "entrance" | "buffet";
@@ -90,6 +92,7 @@ export interface Guest {
   group_tag: string | null;
   table_id: string | null;
   seat_index: number | null;
+  side: GuestSide | null;
   created_at: string;
   updated_at: string;
 }

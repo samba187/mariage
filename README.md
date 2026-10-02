@@ -77,7 +77,8 @@ l'app sur l'écran d'accueil, sinon iOS refuse les notifications web.
 
 Sur une base existante, appliquer plutôt les migrations dans l'ordre :
 [`migration-02-echeancier.sql`](supabase/migration-02-echeancier.sql) puis
-[`migration-03-rappels.sql`](supabase/migration-03-rappels.sql).
+[`migration-03-rappels.sql`](supabase/migration-03-rappels.sql) puis
+[`migration-04-cote-invites.sql`](supabase/migration-04-cote-invites.sql).
 
 ### 2. Variables d'environnement
 

@@ -17,6 +17,9 @@ import {
 import { GuestDialog } from "@/components/guests/guest-dialog";
 import type { Guest, WeddingTable } from "@/types/database";
 import type { GuestInput } from "@/hooks/use-guests";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useHousehold } from "@/hooks/use-household";
+import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
 import { Pencil, Trash2 } from "lucide-react";
 
 const RSVP_LABEL: Record<Guest["rsvp"], string> = {
@@ -45,6 +48,7 @@ interface GuestTableProps {
 }
 
 export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTableProps) {
+  const { household } = useHousehold();
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? "—";
 
   if (guests.length === 0) {
@@ -62,6 +66,7 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
           <TableRow>
             <TableHead>Nom</TableHead>
             <TableHead>Type</TableHead>
+            <TableHead>Invité de</TableHead>
             <TableHead>Groupe</TableHead>
             <TableHead>RSVP</TableHead>
             <TableHead>Table</TableHead>
@@ -75,6 +80,25 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
                 {guest.first_name} {guest.last_name}
               </TableCell>
               <TableCell className="text-muted-foreground">{TYPE_LABEL[guest.type]}</TableCell>
+              <TableCell>
+                <Select
+                  value={guest.side ?? SIDE_NONE}
+                  onValueChange={(v) =>
+                    onUpdate(guest.id, { side: v === SIDE_NONE ? null : (v as Guest["side"]) })
+                  }
+                >
+                  <SelectTrigger size="sm" className="w-36" aria-label="Côté de l'invité">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sideOptions(household).map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TableCell>
               <TableCell className="text-muted-foreground">{guest.group_tag ?? "—"}</TableCell>
               <TableCell>
                 <Badge className={RSVP_VARIANT[guest.rsvp]} variant="secondary">

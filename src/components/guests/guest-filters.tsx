@@ -9,12 +9,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GROUP_TAGS } from "@/types/database";
+import { useHousehold } from "@/hooks/use-household";
+import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
 import { Search } from "lucide-react";
 
 export interface GuestFiltersState {
   search: string;
   rsvp: string;
   group: string;
+  side: string;
 }
 
 interface GuestFiltersProps {
@@ -23,6 +26,7 @@ interface GuestFiltersProps {
 }
 
 export function GuestFilters({ value, onChange }: GuestFiltersProps) {
+  const { household } = useHousehold();
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <div className="relative flex-1">
@@ -34,7 +38,20 @@ export function GuestFilters({ value, onChange }: GuestFiltersProps) {
           onChange={(e) => onChange({ ...value, search: e.target.value })}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Select value={value.side} onValueChange={(v) => onChange({ ...value, side: v })}>
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Côté" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les côtés</SelectItem>
+            {sideOptions(household).map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.value === SIDE_NONE ? "Côté non précisé" : o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={value.rsvp} onValueChange={(v) => onChange({ ...value, rsvp: v })}>
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue placeholder="RSVP" />

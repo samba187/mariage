@@ -10,7 +10,7 @@ import { GuestTable } from "@/components/guests/guest-table";
 import { GuestDialog } from "@/components/guests/guest-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const defaultFilters: GuestFiltersState = { search: "", rsvp: "all", group: "all" };
+const defaultFilters: GuestFiltersState = { search: "", rsvp: "all", group: "all", side: "all" };
 
 export default function GuestsPage() {
   const { household } = useHousehold();
@@ -22,6 +22,7 @@ export default function GuestsPage() {
     const search = filters.search.trim().toLowerCase();
     return guests.filter((g) => {
       if (filters.rsvp !== "all" && g.rsvp !== filters.rsvp) return false;
+      if (filters.side !== "all" && (g.side ?? "none") !== filters.side) return false;
       if (filters.group !== "all" && g.group_tag !== filters.group) return false;
       if (search) {
         const full = `${g.first_name} ${g.last_name}`.toLowerCase();
