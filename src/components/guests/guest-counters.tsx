@@ -2,9 +2,15 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Guest } from "@/types/database";
+import { useHousehold } from "@/hooks/use-household";
+import { sideLabel } from "@/lib/guest-side";
 import { Users, UserCheck, UserX, Clock3 } from "lucide-react";
 
 export function GuestCounters({ guests }: { guests: Guest[] }) {
+  const { household } = useHousehold();
+  const side1 = guests.filter((g) => g.side === "partner1").length;
+  const side2 = guests.filter((g) => g.side === "partner2").length;
+  const noSide = guests.length - side1 - side2;
   const confirmed = guests.filter((g) => g.rsvp === "confirmed");
   const pending = guests.filter((g) => g.rsvp === "pending");
   const declined = guests.filter((g) => g.rsvp === "declined");
@@ -35,6 +41,9 @@ export function GuestCounters({ guests }: { guests: Guest[] }) {
     {
       label: "Total invités",
       value: guests.length,
+      sub: `${side1} ${sideLabel(household, "partner1")} · ${side2} ${sideLabel(household, "partner2")}${
+        noSide ? ` · ${noSide} non précisé` : ""
+      }`,
       icon: Users,
       color: "text-rose-600 bg-rose-100",
     },
