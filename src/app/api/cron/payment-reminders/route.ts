@@ -3,8 +3,11 @@ import webpush from "web-push";
 
 export const dynamic = "force-dynamic";
 
-/** Nombre de jours avant l'échéance déclenchant un rappel. */
-const REMINDER_OFFSETS = [14, 7, 1, 0];
+/**
+ * Nombre de jours avant l'échéance déclenchant un rappel. Les valeurs
+ * négatives relancent un versement resté impayé après sa date.
+ */
+const REMINDER_OFFSETS = [14, 7, 3, 1, 0, -1, -3, -7, -14];
 
 interface ReminderRow {
   payment_id: string;
@@ -27,7 +30,8 @@ function euro(amount: number): string {
 }
 
 function whenLabel(days: number): string {
-  if (days <= 0) return "aujourd'hui";
+  if (days < 0) return `en retard de ${-days} jour${days < -1 ? "s" : ""}`;
+  if (days === 0) return "aujourd'hui";
   if (days === 1) return "demain";
   return `dans ${days} jours`;
 }

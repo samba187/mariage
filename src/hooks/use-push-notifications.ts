@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -11,6 +12,73 @@ function urlBase64ToUint8Array(base64String: string) {
   const output = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
   return output;
+}
+
+/** Enregistre l'abonnement du navigateur pour ce foyer. Renvoie un message d'erreur, ou null. */
+async function saveSubscription(
+  supabase: SupabaseClient,
+  householdId: string,
+  sub: PushSubscription
+): Promise<string | null> {
+  const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh: string; auth: string } };
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !json.endpoint || !json.keys) return "Abonnement incomplet.";
+
+  const { error } = await supabase.from("push_subscriptions").upsert(
+    {
+      household_id: householdId,
+      user_id: user.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    },
+    { onConflict: "endpoint" }
+  );
+  return error?.message ?? null;
+}
+
+async function createSubscription(publicKey: string) {
+  const registration = await navigator.serviceWorker.ready;
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey),
+  });
+}
+
+/**
+ * À chaque ouverture, ré-enregistre l'abonnement push de l'appareil pour le
+ * foyer courant. Sans ça, un abonnement rattaché à un ancien foyer (session
+ * perdue) ou supprimé côté base ne reçoit plus aucun rappel, sans que rien
+ * ne le signale.
+ */
+export function usePushSync(householdId: string | undefined) {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+  useEffect(() => {
+    if (!householdId || !publicKey) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const supabase = createClient();
+    (async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const existing = await registration.pushManager.getSubscription();
+        if (!existing) return; // rappels jamais activés (ou désactivés) sur cet appareil
+        if (!(await saveSubscription(supabase, householdId, existing))) return;
+
+        // L'endpoint appartient à un autre foyer (RLS refuse la mise à jour) :
+        // on repart d'un abonnement neuf, rattaché au foyer courant.
+        await existing.unsubscribe();
+        const fresh = await createSubscription(publicKey);
+        await saveSubscription(supabase, householdId, fresh);
+      } catch {
+        // réseau ou navigateur indisponible : nouvelle tentative à la prochaine ouverture
+      }
+    })();
+  }, [householdId, publicKey]);
 }
 
 export function usePushNotifications(householdId: string | undefined) {
@@ -48,31 +116,10 @@ export function usePushNotifications(householdId: string | undefined) {
         return;
       }
 
-      const registration = await navigator.serviceWorker.ready;
-      const sub = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-
-      const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh: string; auth: string } };
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !json.endpoint || !json.keys) return;
-
-      const { error } = await supabase.from("push_subscriptions").upsert(
-        {
-          household_id: householdId,
-          user_id: user.id,
-          endpoint: json.endpoint,
-          p256dh: json.keys.p256dh,
-          auth: json.keys.auth,
-        },
-        { onConflict: "endpoint" }
-      );
-
+      const sub = await createSubscription(publicKey);
+      const error = await saveSubscription(supabase, householdId, sub);
       if (error) {
-        toast.error(error.message);
+        toast.error(error);
         return;
       }
       setSubscribed(true);

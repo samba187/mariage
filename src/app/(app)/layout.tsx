@@ -2,12 +2,14 @@
 
 import { HouseholdProvider, useHousehold } from "@/hooks/use-household";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { usePushSync } from "@/hooks/use-push-notifications";
 import { Nav } from "@/components/layout/nav";
 import { Loader2, WifiOff } from "lucide-react";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { loading, household } = useHousehold();
   const online = useOnlineStatus();
+  usePushSync(household?.id);
 
   if (loading || !household) {
     return (
