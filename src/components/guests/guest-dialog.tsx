@@ -24,12 +24,28 @@ import type { Guest } from "@/types/database";
 import type { GuestInput } from "@/hooks/use-guests";
 import { useHousehold } from "@/hooks/use-household";
 import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
-import { Plus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Plus, Trash2 } from "lucide-react";
 
 interface GuestDialogProps {
   guest?: Guest;
   onSave: (input: GuestInput) => Promise<unknown>;
   trigger?: React.ReactNode;
+  /** Si fourni, la fenêtre propose un bouton de suppression. */
+  onDelete?: () => Promise<unknown>;
+  /** Mode contrôlé : la fenêtre est ouverte/fermée par le parent, sans déclencheur. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const emptyForm: GuestInput = {
@@ -43,9 +59,19 @@ const emptyForm: GuestInput = {
   side: null,
 };
 
-export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
+export function GuestDialog({
+  guest,
+  onSave,
+  trigger,
+  onDelete,
+  open: controlledOpen,
+  onOpenChange,
+}: GuestDialogProps) {
   const { household } = useHousehold();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : internalOpen;
+  const setOpen = controlled ? (onOpenChange ?? (() => {})) : setInternalOpen;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<GuestInput>(guest ?? emptyForm);
 
@@ -64,14 +90,16 @@ export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button size="sm">
-            <Plus className="size-4" />
-            Ajouter un invité
-          </Button>
-        )}
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button size="sm">
+              <Plus className="size-4" />
+              Ajouter un invité
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -169,7 +197,39 @@ export function GuestDialog({ guest, onSave, trigger }: GuestDialogProps) {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {guest && onDelete ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button type="button" variant="ghost" className="text-destructive hover:text-destructive">
+                    <Trash2 className="size-4" />
+                    Supprimer
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Supprimer cet invité ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {guest.first_name} {guest.last_name} sera retiré définitivement de la liste et du plan de
+                      table.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => {
+                        await onDelete();
+                        setOpen(false);
+                      }}
+                    >
+                      Supprimer
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <span />
+            )}
             <Button type="submit" disabled={saving}>
               {guest ? "Enregistrer" : "Ajouter"}
             </Button>

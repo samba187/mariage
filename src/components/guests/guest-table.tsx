@@ -2,25 +2,13 @@
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { GuestDialog } from "@/components/guests/guest-dialog";
 import type { Guest, WeddingTable } from "@/types/database";
 import type { GuestInput } from "@/hooks/use-guests";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHousehold } from "@/hooks/use-household";
+import { useState } from "react";
 import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
-import { Pencil, Trash2 } from "lucide-react";
 
 const RSVP_LABEL: Record<Guest["rsvp"], string> = {
   confirmed: "Confirmé",
@@ -49,6 +37,8 @@ interface GuestTableProps {
 
 export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTableProps) {
   const { household } = useHousehold();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = guests.find((g) => g.id === editingId);
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? "—";
 
   if (guests.length === 0) {
@@ -60,6 +50,7 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
   }
 
   return (
+    <>
     <div className="overflow-x-auto rounded-lg border">
       <Table>
         <TableHeader>
@@ -70,17 +61,16 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
             <TableHead>Groupe</TableHead>
             <TableHead>RSVP</TableHead>
             <TableHead>Table</TableHead>
-            <TableHead className="w-20" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {guests.map((guest) => (
-            <TableRow key={guest.id}>
+            <TableRow key={guest.id} className="cursor-pointer" onClick={() => setEditingId(guest.id)}>
               <TableCell className="font-medium">
                 {guest.first_name} {guest.last_name}
               </TableCell>
               <TableCell className="text-muted-foreground">{TYPE_LABEL[guest.type]}</TableCell>
-              <TableCell>
+              <TableCell onClick={(e) => e.stopPropagation()}>
                 <Select
                   value={guest.side ?? SIDE_NONE}
                   onValueChange={(v) =>
@@ -106,43 +96,19 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
                 </Badge>
               </TableCell>
               <TableCell className="text-muted-foreground">{tableName(guest.table_id)}</TableCell>
-              <TableCell>
-                <div className="flex items-center justify-end gap-1">
-                  <GuestDialog
-                    guest={guest}
-                    onSave={(input) => onUpdate(guest.id, input)}
-                    trigger={
-                      <Button size="icon" variant="ghost" className="size-8">
-                        <Pencil className="size-3.5" />
-                      </Button>
-                    }
-                  />
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="icon" variant="ghost" className="size-8 text-destructive hover:text-destructive">
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Supprimer cet invité ?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {guest.first_name} {guest.last_name} sera retiré définitivement de la liste et du plan de
-                          table.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Annuler</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onDelete(guest.id)}>Supprimer</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
     </div>
+    <GuestDialog
+      key={editing?.id}
+      guest={editing}
+      open={!!editing}
+      onOpenChange={(open) => !open && setEditingId(null)}
+      onSave={(input) => onUpdate(editing!.id, input)}
+      onDelete={() => onDelete(editing!.id)}
+    />
+    </>
   );
 }
