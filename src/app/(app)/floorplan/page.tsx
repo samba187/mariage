@@ -11,6 +11,9 @@ import { TablesList } from "@/components/floorplan/tables-list";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Landmark, RoomShape } from "@/types/database";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { FileDown, Loader2 } from "lucide-react";
+import { exportTablesPdf } from "@/lib/export-tables-pdf";
 
 const FloorplanCanvas = dynamic(() => import("@/components/floorplan/canvas").then((m) => m.FloorplanCanvas), {
   ssr: false,
@@ -23,6 +26,7 @@ export default function FloorplanPage() {
   const { tables, loading: tablesLoading, addTable, updateTable, deleteTable } = useTables(household?.id);
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
   const unplacedGuests = guests.filter((g) => !g.table_id);
 
@@ -71,14 +75,30 @@ export default function FloorplanPage() {
     updateHousehold({ room_shape: shape });
   }
 
+  async function handleExport() {
+    if (!household) return;
+    setExporting(true);
+    try {
+      await exportTablesPdf(household, tables, guests);
+    } catch {
+      toast.error("Impossible de générer le PDF.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (!household) return null;
 
   const loading = guestsLoading || tablesLoading;
 
   return (
     <div className="flex min-h-full flex-col">
-      <div className="border-b p-4 md:p-6 md:pb-0">
+      <div className="flex items-center justify-between gap-3 border-b p-4 md:p-6 md:pb-0">
         <h1 className="text-2xl font-semibold tracking-tight">Plan de salle</h1>
+        <Button size="sm" variant="outline" onClick={handleExport} disabled={loading || exporting}>
+          {exporting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+          Exporter en PDF
+        </Button>
       </div>
 
       <Toolbar
