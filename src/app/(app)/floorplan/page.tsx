@@ -24,7 +24,7 @@ export default function FloorplanPage() {
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
 
-  const unplacedGuests = guests.filter((g) => g.rsvp === "confirmed" && !g.table_id);
+  const unplacedGuests = guests.filter((g) => !g.table_id);
 
   function findGuest(id: string) {
     return guests.find((g) => g.id === id);
