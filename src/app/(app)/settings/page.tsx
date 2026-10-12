@@ -24,6 +24,55 @@ import { toast } from "sonner";
  * effet de synchronisation, et la saisie en cours n'est pas écrasée par les
  * mises à jour temps réel du foyer.
  */
+/**
+ * Dimension de la salle, enregistrée seulement à la sortie du champ : une
+ * saisie en cours (champ vidé, « 8 » avant « 800 ») ne doit pas redessiner le
+ * plan avec une salle minuscule.
+ */
+function RoomDimensionInput({
+  id,
+  value,
+  min,
+  onCommit,
+}: {
+  id: string;
+  value: number;
+  min: number;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    // Valeur modifiée ailleurs (autre appareil) : on resynchronise le champ.
+    setLastValue(value);
+    setDraft(String(value));
+  }
+
+  function commit() {
+    const parsed = Math.round(Number(draft));
+    const next = Number.isFinite(parsed) && parsed > 0 ? Math.min(3000, Math.max(min, parsed)) : value;
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  }
+
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={3000}
+      step={50}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+    />
+  );
+}
+
 function WeddingInfoForm({
   household,
   onSave,
@@ -239,31 +288,28 @@ export default function SettingsPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="s-w">Largeur</Label>
-              <Input
+              <RoomDimensionInput
                 id="s-w"
-                type="number"
                 min={400}
-                max={3000}
-                step={50}
                 value={household.room_width}
-                onChange={(e) => updateHousehold({ room_width: Number(e.target.value) })}
+                onCommit={(v) => updateHousehold({ room_width: v })}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="s-h">Hauteur</Label>
-              <Input
+              <RoomDimensionInput
                 id="s-h"
-                type="number"
                 min={300}
-                max={3000}
-                step={50}
                 value={household.room_height}
-                onChange={(e) => updateHousehold({ room_height: Number(e.target.value) })}
+                onCommit={(v) => updateHousehold({ room_height: v })}
               />
             </div>
           </div>
           <Separator />
-          <p className="text-xs text-muted-foreground">Seule la proportion compte.</p>
+          <p className="text-xs text-muted-foreground">
+            Seule la proportion compte. Les tables et invités déjà placés sont conservés : une table qui
+            sortirait de la salle est ramenée au bord.
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -76,6 +76,11 @@ export function FloorplanCanvas({
   const roomWidth = household.room_shape === "square" ? Math.min(household.room_width, household.room_height) : household.room_width;
   const roomHeight = household.room_shape === "square" ? Math.min(household.room_width, household.room_height) : household.room_height;
 
+  // Après une réduction de la salle, un élément peut se retrouver hors du plan :
+  // on l'affiche au bord pour qu'il reste visible et déplaçable.
+  const clampX = (x: number) => Math.min(Math.max(x, 0), Math.max(household.room_width - 40, 0));
+  const clampY = (y: number) => Math.min(Math.max(y, 0), Math.max(household.room_height - 40, 0));
+
   const stageWidth = Math.floor(containerWidth * zoom);
   const scale = stageWidth / household.room_width;
   const stageHeight = Math.floor(household.room_height * scale);
@@ -158,8 +163,8 @@ export function FloorplanCanvas({
             return (
               <Group
                 key={lm.id}
-                x={lm.pos_x}
-                y={lm.pos_y}
+                x={clampX(lm.pos_x)}
+                y={clampY(lm.pos_y)}
                 draggable
                 onDragEnd={(e) => onLandmarkDragEnd(lm.id, e.target.x(), e.target.y())}
               >
@@ -233,8 +238,8 @@ export function FloorplanCanvas({
             return (
               <Group
                 key={table.id}
-                x={table.pos_x}
-                y={table.pos_y}
+                x={clampX(table.pos_x)}
+                y={clampY(table.pos_y)}
                 draggable
                 onDragEnd={(e) => onTableDragEnd(table.id, e.target.x(), e.target.y())}
               >
