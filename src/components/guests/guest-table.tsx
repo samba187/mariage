@@ -8,7 +8,7 @@ import type { GuestInput } from "@/hooks/use-guests";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHousehold } from "@/hooks/use-household";
 import { useState } from "react";
-import { SIDE_NONE, sideOptions } from "@/lib/guest-side";
+import { SIDE_NONE, sideLabel, sideOptions } from "@/lib/guest-side";
 
 const RSVP_LABEL: Record<Guest["rsvp"], string> = {
   confirmed: "Confirmé",
@@ -51,7 +51,38 @@ export function GuestTable({ guests, tables, onUpdate, onDelete }: GuestTablePro
 
   return (
     <>
-    <div className="overflow-x-auto rounded-lg border">
+    {/* Mobile : une ligne compacte par invité, sans défilement horizontal. */}
+    <ul className="divide-y rounded-lg border md:hidden">
+      {guests.map((guest) => (
+        <li key={guest.id}>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-muted/50"
+            onClick={() => setEditingId(guest.id)}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">
+                {guest.first_name} {guest.last_name}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {[
+                  guest.side ? sideLabel(household, guest.side) : null,
+                  guest.type !== "adult" ? TYPE_LABEL[guest.type] : null,
+                  guest.table_id ? tableName(guest.table_id) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+              </p>
+            </div>
+            <Badge className={`shrink-0 ${RSVP_VARIANT[guest.rsvp]}`} variant="secondary">
+              {RSVP_LABEL[guest.rsvp]}
+            </Badge>
+          </button>
+        </li>
+      ))}
+    </ul>
+
+    <div className="hidden overflow-x-auto rounded-lg border md:block">
       <Table>
         <TableHeader>
           <TableRow>
