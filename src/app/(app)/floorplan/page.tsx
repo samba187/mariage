@@ -19,7 +19,7 @@ import { exportTablesPdf } from "@/lib/export-tables-pdf";
 
 const FloorplanCanvas = dynamic(() => import("@/components/floorplan/canvas").then((m) => m.FloorplanCanvas), {
   ssr: false,
-  loading: () => <Skeleton className="h-[62svh] w-full rounded-lg md:h-[min(75vh,720px)]" />,
+  loading: () => <Skeleton className="h-[50svh] w-full rounded-lg" />,
 });
 
 export default function FloorplanPage() {
@@ -154,7 +154,7 @@ export default function FloorplanPage() {
       <div className="flex flex-1 flex-col gap-4 p-4 md:flex-row md:p-6">
         <div className="min-w-0 flex-1">
           {loading ? (
-            <Skeleton className="h-[62svh] w-full rounded-lg md:h-[min(75vh,720px)]" />
+            <Skeleton className="h-[50svh] w-full rounded-lg" />
           ) : (
             <FloorplanCanvas
               household={household}

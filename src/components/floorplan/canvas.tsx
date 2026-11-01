@@ -107,17 +107,60 @@ export function FloorplanCanvas({
   // Vue (zoom + déplacement). Pendant un geste, la scène est modifiée
   // directement (fluide, sans rendu React) ; l'état est mis à jour à la fin.
   // ---------------------------------------------------------------------------
+
+  // Après une réduction de la salle, un élément peut se retrouver hors du plan :
+  // on l'affiche au bord pour qu'il reste visible et déplaçable.
+  const clampX = (x: number) => Math.min(Math.max(x, 0), Math.max(roomW - 40, 0));
+  const clampY = (y: number) => Math.min(Math.max(y, 0), Math.max(roomH - 40, 0));
+
+  // Emprise de tout ce qui est dessiné (salle + tables qui débordent + repères).
+  // Recalculée quand on ajoute ou retire un élément, pas à chaque déplacement :
+  // sinon le cadre changerait de hauteur et la vue sauterait pendant qu'on
+  // arrange la salle.
+  const bounds = useMemo(() => {
+    let minX = 0;
+    let minY = 0;
+    let maxX = roomWidth;
+    let maxY = roomHeight;
+    for (const t of tables) {
+      const fp = getTableFootprint(t.type, t.capacity);
+      const halfW = (fp.width / 2) * (t.scale ?? 1) + 12;
+      const halfH = (fp.height / 2) * (t.scale ?? 1) + 12;
+      const x = clampX(t.pos_x);
+      const y = clampY(t.pos_y);
+      minX = Math.min(minX, x - halfW);
+      minY = Math.min(minY, y - halfH);
+      maxX = Math.max(maxX, x + halfW);
+      maxY = Math.max(maxY, y + halfH);
+    }
+    for (const lm of household.landmarks) {
+      maxX = Math.max(maxX, clampX(lm.pos_x) + lm.w);
+      maxY = Math.max(maxY, clampY(lm.pos_y) + lm.h);
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontairement figé pendant les déplacements (voir plus haut)
+  }, [roomWidth, roomHeight, tables.length, household.landmarks.length]);
+
+  // Le cadre prend la proportion du plan : pas de grande bande vide au-dessus
+  // et en dessous d'une salle tout en longueur.
+  const frameHeight = width ? Math.max(260, Math.round((width * bounds.height) / bounds.width)) : 0;
+
   const fitView = useCallback((): View | null => {
     if (!width || !height) return null;
-    const scale = Math.min(width / roomWidth, height / roomHeight) * 0.94;
-    return { scale, x: (width - roomWidth * scale) / 2, y: (height - roomHeight * scale) / 2 };
-  }, [width, height, roomWidth, roomHeight]);
+    const margin = 10;
+    const scale = Math.min((width - margin * 2) / bounds.width, (height - margin * 2) / bounds.height);
+    return {
+      scale,
+      x: (width - bounds.width * scale) / 2 - bounds.x * scale,
+      y: (height - bounds.height * scale) / 2 - bounds.y * scale,
+    };
+  }, [width, height, bounds]);
 
   const [view, setView] = useState<View | null>(null);
-  const fitKey = `${width}x${height}|${roomWidth}x${roomHeight}`;
+  const fitKey = `${width}x${height}|${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
   const [lastFitKey, setLastFitKey] = useState("");
   if (fitKey !== lastFitKey && width && height) {
-    // Nouvelle taille d'écran ou de salle : on recadre sur la salle entière.
+    // Nouvelle taille d'écran, de salle ou nouvel élément : on recadre sur tout le plan.
     setLastFitKey(fitKey);
     setView(fitView());
   }
@@ -274,11 +317,6 @@ export function FloorplanCanvas({
     return map;
   }, [guests]);
 
-  // Après une réduction de la salle, un élément peut se retrouver hors du plan :
-  // on l'affiche au bord pour qu'il reste visible et déplaçable.
-  const clampX = (x: number) => Math.min(Math.max(x, 0), Math.max(roomW - 40, 0));
-  const clampY = (y: number) => Math.min(Math.max(y, 0), Math.max(roomH - 40, 0));
-
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     const guestId = e.dataTransfer.getData("text/guest-id");
@@ -306,7 +344,8 @@ export function FloorplanCanvas({
   return (
     <div
       ref={wrapperRef}
-      className="relative h-[62svh] w-full touch-none overflow-hidden rounded-lg border bg-muted/30 md:h-[min(75vh,720px)]"
+      className="relative w-full touch-none overflow-hidden rounded-lg border bg-muted/30"
+      style={{ height: frameHeight ? `min(72svh, ${frameHeight}px)` : "60svh" }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
       onPointerDown={handlePointerDown}
