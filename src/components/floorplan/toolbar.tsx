@@ -11,7 +11,15 @@ import {
 import { TableDialog } from "@/components/floorplan/table-dialog";
 import type { Landmark, LandmarkType, RoomShape } from "@/types/database";
 import type { TableInput } from "@/hooks/use-tables";
-import { Music4, Mic2, DoorOpen, UtensilsCrossed, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { FloorplanMode } from "@/components/floorplan/canvas";
+import { cn } from "@/lib/utils";
+import { Music4, Mic2, DoorOpen, UtensilsCrossed, Move, Plus, Users } from "lucide-react";
 
 const LANDMARK_DEFS: Record<LandmarkType, { label: string; icon: typeof Music4; w: number; h: number }> = {
   dance_floor: { label: "Piste de danse", icon: Music4, w: 160, h: 100 },
@@ -21,24 +29,24 @@ const LANDMARK_DEFS: Record<LandmarkType, { label: string; icon: typeof Music4; 
 };
 
 interface ToolbarProps {
+  mode: FloorplanMode;
+  onModeChange: (mode: FloorplanMode) => void;
   roomShape: RoomShape;
   onRoomShapeChange: (shape: RoomShape) => void;
   onAddLandmark: (landmark: Landmark) => void;
   onAddTable: (input: TableInput) => Promise<void>;
   nextTableNumber: number;
-  zoom: number;
-  onZoomChange: (zoom: number) => void;
   landmarkCount: number;
 }
 
 export function Toolbar({
+  mode,
+  onModeChange,
   roomShape,
   onRoomShapeChange,
   onAddLandmark,
   onAddTable,
   nextTableNumber,
-  zoom,
-  onZoomChange,
   landmarkCount,
 }: ToolbarProps) {
   function handleAddLandmark(type: LandmarkType) {
@@ -56,43 +64,75 @@ export function Toolbar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b bg-background p-3">
-      <TableDialog onSave={onAddTable} nextTableNumber={nextTableNumber} />
+    <div className="space-y-2 border-b bg-background p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border bg-muted/50 p-0.5" role="tablist">
+          {(
+            [
+              { value: "place", label: "Placer les invités", icon: Users },
+              { value: "edit", label: "Disposition", icon: Move },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              role="tab"
+              aria-selected={mode === m.value}
+              onClick={() => onModeChange(m.value)}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
+                mode === m.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+              )}
+            >
+              <m.icon className="size-4" />
+              {m.label}
+            </button>
+          ))}
+        </div>
 
-      <div className="mx-1 h-6 w-px bg-border" />
+        <TableDialog onSave={onAddTable} nextTableNumber={nextTableNumber} />
 
-      {(Object.keys(LANDMARK_DEFS) as LandmarkType[]).map((type) => {
-        const def = LANDMARK_DEFS[type];
-        return (
-          <Button key={type} size="sm" variant="outline" onClick={() => handleAddLandmark(type)}>
-            <def.icon className="size-4" />
-            {def.label}
-          </Button>
-        );
-      })}
+        {mode === "edit" && (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Plus className="size-4" />
+                  Repère
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {(Object.keys(LANDMARK_DEFS) as LandmarkType[]).map((type) => {
+                  const def = LANDMARK_DEFS[type];
+                  return (
+                    <DropdownMenuItem key={type} onSelect={() => handleAddLandmark(type)}>
+                      <def.icon className="size-4" />
+                      {def.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-      <div className="mx-1 h-6 w-px bg-border" />
-
-      <Select value={roomShape} onValueChange={(v) => onRoomShapeChange(v as RoomShape)}>
-        <SelectTrigger size="sm" className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="rectangle">Salle rectangle</SelectItem>
-          <SelectItem value="square">Salle carrée</SelectItem>
-          <SelectItem value="free">Forme libre</SelectItem>
-        </SelectContent>
-      </Select>
-
-      <div className="ml-auto flex items-center gap-1">
-        <Button size="icon" variant="outline" className="size-8" onClick={() => onZoomChange(Math.max(0.5, zoom - 0.1))}>
-          <ZoomOut className="size-4" />
-        </Button>
-        <span className="w-10 text-center text-xs text-muted-foreground">{Math.round(zoom * 100)}%</span>
-        <Button size="icon" variant="outline" className="size-8" onClick={() => onZoomChange(Math.min(1.5, zoom + 0.1))}>
-          <ZoomIn className="size-4" />
-        </Button>
+            <Select value={roomShape} onValueChange={(v) => onRoomShapeChange(v as RoomShape)}>
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="rectangle">Salle rectangle</SelectItem>
+                <SelectItem value="square">Salle carrée</SelectItem>
+                <SelectItem value="free">Forme libre</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        )}
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        {mode === "place"
+          ? "Touchez une table pour y placer vos invités. Glissez pour vous déplacer, pincez pour zoomer."
+          : "Glissez une table ou un repère pour le déplacer. Touchez-le pour afficher sa poignée de taille (et le × pour supprimer un repère)."}
+      </p>
     </div>
   );
 }

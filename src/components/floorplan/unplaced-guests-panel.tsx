@@ -45,7 +45,7 @@ export function UnplacedGuestsPanel({ guests, selectedGuestId, onSelect }: Unpla
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        Cliquer un invité, puis une chaise libre.
+        Choisissez un invité, puis touchez une table (ou une chaise libre).
       </p>
       {visible.length === 0 && <p className="py-3 text-center text-xs text-muted-foreground">Aucun résultat.</p>}
       <ul className="max-h-80 space-y-1 overflow-y-auto pr-1">

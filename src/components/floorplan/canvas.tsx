@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Circle, Group, Text } from "react-konva";
-import type Konva from "konva";
-import { toast } from "sonner";
+import Konva from "konva";
+import type { KonvaEventObject } from "konva/lib/Node";
+import { Button } from "@/components/ui/button";
 import type { Guest, Household, Landmark, WeddingTable } from "@/types/database";
 import {
+  getRectTableWidth,
   getSeatPositions,
+  getTableFootprint,
   ROUND_TABLE_RADIUS,
-  RECT_TABLE_WIDTH,
   RECT_TABLE_HEIGHT,
   SEAT_RADIUS,
-  SEAT_GAP,
 } from "@/lib/floorplan-geometry";
+import { Maximize, Minus, Plus } from "lucide-react";
 
 const LANDMARK_STYLE: Record<Landmark["type"], { fill: string; stroke: string; emoji: string }> = {
   dance_floor: { fill: "#f3e8ff", stroke: "#c084fc", emoji: "💃" },
@@ -21,14 +23,27 @@ const LANDMARK_STYLE: Record<Landmark["type"], { fill: string; stroke: string; e
   buffet: { fill: "#fef3c7", stroke: "#fbbf24", emoji: "🍽️" },
 };
 
+/** Zoom à partir duquel les prénoms s'affichent à côté des chaises. */
+const NAMES_MIN_SCALE = 0.75;
+const ZOOM_STEP = 1.35;
+
+export type FloorplanMode = "place" | "edit";
+
+interface View {
+  x: number;
+  y: number;
+  scale: number;
+}
+
 interface FloorplanCanvasProps {
   household: Household;
   tables: WeddingTable[];
   guests: Guest[];
+  mode: FloorplanMode;
   selectedGuestId: string | null;
-  zoom: number;
-  onAssignSeat: (guestId: string, tableId: string, seatIndex: number) => void;
-  onUnassignGuest: (guestId: string) => void;
+  /** Table touchée ; seatIndex est renseigné si le doigt était sur une chaise. */
+  onTableTap: (tableId: string, seatIndex: number | null) => void;
+  onDropGuest: (guestId: string, tableId: string, seatIndex: number | null) => void;
   onTableDragEnd: (tableId: string, x: number, y: number) => void;
   onTableResize: (tableId: string, scale: number) => void;
   onLandmarkDragEnd: (landmarkId: string, x: number, y: number) => void;
@@ -36,54 +51,220 @@ interface FloorplanCanvasProps {
   onLandmarkRemove: (landmarkId: string) => void;
 }
 
-function useContainerWidth() {
+function useContainerSize() {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(800);
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!ref.current) return;
-    const el = ref.current;
     const observer = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width;
-      if (w) setWidth(Math.max(320, Math.floor(w)));
+      const rect = entries[0]?.contentRect;
+      if (rect) setSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
     });
-    observer.observe(el);
+    observer.observe(ref.current);
     return () => observer.disconnect();
   }, []);
 
-  return { ref, width };
+  return { ref, ...size };
+}
+
+/** Lit « seat|<tableId>|<index> » sur la forme touchée. */
+function seatFromTarget(target: Konva.Node): { tableId: string; seatIndex: number } | null {
+  const name = target.name();
+  if (!name.startsWith("seat|")) return null;
+  const [, tableId, index] = name.split("|");
+  return { tableId, seatIndex: Number(index) };
 }
 
 export function FloorplanCanvas({
   household,
   tables,
   guests,
+  mode,
   selectedGuestId,
-  zoom,
-  onAssignSeat,
-  onUnassignGuest,
+  onTableTap,
+  onDropGuest,
   onTableDragEnd,
   onTableResize,
   onLandmarkDragEnd,
   onLandmarkResize,
   onLandmarkRemove,
 }: FloorplanCanvasProps) {
-  const { ref: wrapperRef, width: containerWidth } = useContainerWidth();
+  const { ref: wrapperRef, width, height } = useContainerSize();
   const stageRef = useRef<Konva.Stage>(null);
   const [resizingLandmark, setResizingLandmark] = useState<{ id: string; w: number; h: number } | null>(null);
   const [resizingTable, setResizingTable] = useState<{ id: string; scale: number } | null>(null);
+  const editing = mode === "edit";
+  // Élément sélectionné en mode disposition : lui seul affiche ses poignées.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const roomWidth = household.room_shape === "square" ? Math.min(household.room_width, household.room_height) : household.room_width;
-  const roomHeight = household.room_shape === "square" ? Math.min(household.room_width, household.room_height) : household.room_height;
+  const roomW = household.room_width;
+  const roomH = household.room_height;
+  const roomWidth = household.room_shape === "square" ? Math.min(roomW, roomH) : roomW;
+  const roomHeight = household.room_shape === "square" ? Math.min(roomW, roomH) : roomH;
 
-  // Après une réduction de la salle, un élément peut se retrouver hors du plan :
-  // on l'affiche au bord pour qu'il reste visible et déplaçable.
-  const clampX = (x: number) => Math.min(Math.max(x, 0), Math.max(household.room_width - 40, 0));
-  const clampY = (y: number) => Math.min(Math.max(y, 0), Math.max(household.room_height - 40, 0));
+  // ---------------------------------------------------------------------------
+  // Vue (zoom + déplacement). Pendant un geste, la scène est modifiée
+  // directement (fluide, sans rendu React) ; l'état est mis à jour à la fin.
+  // ---------------------------------------------------------------------------
+  const fitView = useCallback((): View | null => {
+    if (!width || !height) return null;
+    const scale = Math.min(width / roomWidth, height / roomHeight) * 0.94;
+    return { scale, x: (width - roomWidth * scale) / 2, y: (height - roomHeight * scale) / 2 };
+  }, [width, height, roomWidth, roomHeight]);
 
-  const stageWidth = Math.floor(containerWidth * zoom);
-  const scale = stageWidth / household.room_width;
-  const stageHeight = Math.floor(household.room_height * scale);
+  const [view, setView] = useState<View | null>(null);
+  const fitKey = `${width}x${height}|${roomWidth}x${roomHeight}`;
+  const [lastFitKey, setLastFitKey] = useState("");
+  if (fitKey !== lastFitKey && width && height) {
+    // Nouvelle taille d'écran ou de salle : on recadre sur la salle entière.
+    setLastFitKey(fitKey);
+    setView(fitView());
+  }
+
+  const minScale = (fitView()?.scale ?? 0.2) * 0.6;
+  const maxScale = Math.max(3, minScale * 12);
+  const clampScale = useCallback(
+    (s: number) => Math.min(maxScale, Math.max(minScale, s)),
+    [minScale, maxScale]
+  );
+
+  const commitView = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    setView({ x: stage.x(), y: stage.y(), scale: stage.scaleX() });
+  }, []);
+
+  /** Zoome en gardant fixe le point (px, py) de l'écran. */
+  const zoomAt = useCallback(
+    (nextScale: number, px: number, py: number, commit = true) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const old = stage.scaleX();
+      const scale = clampScale(nextScale);
+      const pointTo = { x: (px - stage.x()) / old, y: (py - stage.y()) / old };
+      stage.scale({ x: scale, y: scale });
+      stage.position({ x: px - pointTo.x * scale, y: py - pointTo.y * scale });
+      stage.batchDraw();
+      if (commit) commitView();
+    },
+    [clampScale, commitView]
+  );
+
+  function zoomButton(factor: number) {
+    const stage = stageRef.current;
+    if (!stage) return;
+    zoomAt(stage.scaleX() * factor, width / 2, height / 2);
+  }
+
+  function handleWheel(e: KonvaEventObject<WheelEvent>) {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    const pointer = stage?.getPointerPosition();
+    if (!stage || !pointer) return;
+    // Pincement sur pavé tactile = wheel + ctrlKey : on zoome plus finement.
+    const intensity = e.evt.ctrlKey ? 0.01 : 0.0015;
+    zoomAt(stage.scaleX() * Math.exp(-e.evt.deltaY * intensity), pointer.x, pointer.y);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gestes : un doigt (ou la souris) déplace la vue, deux doigts zooment.
+  // Gérés à la main plutôt qu'avec le glisser de Konva, qui ne sait pas
+  // passer proprement d'un doigt à deux.
+  // ---------------------------------------------------------------------------
+  type Point = { x: number; y: number };
+  const pointers = useRef(new Map<number, Point>());
+  const gesture = useRef<
+    | { kind: "pan"; start: Point; origin: Point; moved: boolean }
+    | { kind: "pinch"; dist: number; center: Point }
+    | null
+  >(null);
+  // Après un déplacement ou un pincement, Konva verrait un « tap » sur la
+  // table restée sous le doigt : on l'ignore.
+  const suppressTap = useRef(false);
+  const suppressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const isGhostTap = () => suppressTap.current;
+  function suppressTapsFor(ms: number | null) {
+    clearTimeout(suppressTimer.current);
+    suppressTap.current = true;
+    if (ms !== null) suppressTimer.current = setTimeout(() => (suppressTap.current = false), ms);
+  }
+
+  function localPoint(e: React.PointerEvent): Point {
+    const rect = wrapperRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function pinchMetrics(): { dist: number; center: Point } {
+    const [a, b] = [...pointers.current.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    const stage = stageRef.current;
+    // Les boutons de zoom posés sur le plan gèrent leurs propres clics.
+    if (!stage || !(e.target instanceof HTMLCanvasElement)) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+
+    const p = localPoint(e);
+    pointers.current.set(e.pointerId, p);
+
+    if (pointers.current.size === 1) {
+      // Sur un élément déplaçable (mode « disposition »), c'est lui qui bouge.
+      const shape = stage.getIntersection(p);
+      const onDraggable = shape?.findAncestor((n: Konva.Node) => n.draggable(), true);
+      gesture.current = onDraggable ? null : { kind: "pan", start: p, origin: stage.position(), moved: false };
+    } else if (pointers.current.size === 2) {
+      // Le deuxième doigt arrête tout glisser en cours (table, repère).
+      Konva.DD._dragElements.forEach((elem) => elem.node.stopDrag());
+      gesture.current = { kind: "pinch", ...pinchMetrics() };
+      suppressTapsFor(null);
+    }
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!pointers.current.has(e.pointerId)) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const p = localPoint(e);
+    pointers.current.set(e.pointerId, p);
+    const g = gesture.current;
+
+    if (g?.kind === "pan") {
+      const dx = p.x - g.start.x;
+      const dy = p.y - g.start.y;
+      if (!g.moved && Math.hypot(dx, dy) < 6) return;
+      g.moved = true;
+      stage.position({ x: g.origin.x + dx, y: g.origin.y + dy });
+      stage.batchDraw();
+    } else if (g?.kind === "pinch" && pointers.current.size >= 2) {
+      const { dist, center } = pinchMetrics();
+      const old = stage.scaleX();
+      const next = clampScale(old * (dist / (g.dist || dist)));
+      const pointTo = { x: (g.center.x - stage.x()) / old, y: (g.center.y - stage.y()) / old };
+      stage.scale({ x: next, y: next });
+      stage.position({ x: center.x - pointTo.x * next, y: center.y - pointTo.y * next });
+      stage.batchDraw();
+      gesture.current = { kind: "pinch", dist, center };
+    }
+  }
+
+  function handlePointerEnd(e: React.PointerEvent) {
+    if (!pointers.current.delete(e.pointerId)) return;
+    const g = gesture.current;
+    if (g?.kind === "pinch") {
+      commitView();
+      suppressTapsFor(350);
+      // Le doigt restant ne reprend pas un déplacement en cours de route.
+      gesture.current = null;
+    } else if (g?.kind === "pan" && g.moved) {
+      commitView();
+      suppressTapsFor(300);
+    }
+    if (pointers.current.size === 0) gesture.current = null;
+  }
+
+  // ---------------------------------------------------------------------------
 
   const guestBySeat = useMemo(() => {
     const map = new Map<string, Guest>();
@@ -93,18 +274,10 @@ export function FloorplanCanvas({
     return map;
   }, [guests]);
 
-  function handleSeatClick(tableId: string, seatIndex: number) {
-    const occupant = guestBySeat.get(`${tableId}|${seatIndex}`);
-    if (occupant) {
-      onUnassignGuest(occupant.id);
-      return;
-    }
-    if (!selectedGuestId) {
-      toast.info("Sélectionnez d'abord un invité dans la liste à gauche.");
-      return;
-    }
-    onAssignSeat(selectedGuestId, tableId, seatIndex);
-  }
+  // Après une réduction de la salle, un élément peut se retrouver hors du plan :
+  // on l'affiche au bord pour qu'il reste visible et déplaçable.
+  const clampX = (x: number) => Math.min(Math.max(x, 0), Math.max(roomW - 40, 0));
+  const clampY = (y: number) => Math.min(Math.max(y, 0), Math.max(roomH - 40, 0));
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -114,233 +287,364 @@ export function FloorplanCanvas({
 
     stage.setPointersPositions(e.nativeEvent as unknown as MouseEvent);
     const pos = stage.getPointerPosition();
-    if (!pos) return;
-    const shape = stage.getIntersection(pos);
-    const name = shape?.name() ?? "";
-    if (!name.startsWith("seat|")) {
-      toast.info("Déposez l'invité directement sur une chaise.");
+    const shape = pos ? stage.getIntersection(pos) : null;
+    if (!shape) return;
+    const seat = seatFromTarget(shape);
+    if (seat) {
+      onDropGuest(guestId, seat.tableId, seat.seatIndex);
       return;
     }
-    const [, tableId, seatIndexStr] = name.split("|");
-    const seatIndex = Number(seatIndexStr);
-    const occupant = guestBySeat.get(`${tableId}|${seatIndex}`);
-    if (occupant) {
-      toast.error("Cette chaise est déjà occupée.");
-      return;
-    }
-    onAssignSeat(guestId, tableId, seatIndex);
+    const tableGroup = shape.findAncestor(".table");
+    if (tableGroup) onDropGuest(guestId, tableGroup.id(), null);
   }
+
+  const scale = view?.scale ?? 1;
+  const showNames = scale >= NAMES_MIN_SCALE;
+  // Poignées de taille constante à l'écran, assez grosses pour un doigt.
+  const handleRadius = 13 / scale;
 
   return (
     <div
       ref={wrapperRef}
-      className="relative w-full overflow-auto rounded-lg border bg-[repeating-linear-gradient(45deg,theme(colors.muted.DEFAULT)_0,theme(colors.muted.DEFAULT)_1px,transparent_1px,transparent_16px)] bg-muted/20"
-      style={{ height: "min(70vh, 640px)" }}
+      className="relative h-[62svh] w-full touch-none overflow-hidden rounded-lg border bg-muted/30 md:h-[min(75vh,720px)]"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onPointerLeave={handlePointerEnd}
     >
-      <Stage ref={stageRef} width={stageWidth} height={stageHeight} scaleX={scale} scaleY={scale}>
-        <Layer>
-          <Rect
-            x={0}
-            y={0}
-            width={roomWidth}
-            height={roomHeight}
-            fill="#ffffff"
-            stroke="#d6d3d1"
-            strokeWidth={2}
-            dash={household.room_shape === "free" ? [10, 6] : undefined}
-            cornerRadius={8}
-          />
+      {view && (
+        <Stage
+          ref={stageRef}
+          width={width}
+          height={height}
+          x={view.x}
+          y={view.y}
+          scaleX={view.scale}
+          scaleY={view.scale}
+          onWheel={handleWheel}
+          onClick={() => setSelectedId(null)}
+          onTap={() => {
+            if (!isGhostTap()) setSelectedId(null);
+          }}
+        >
+          <Layer>
+            <Rect
+              x={0}
+              y={0}
+              width={roomWidth}
+              height={roomHeight}
+              fill="#ffffff"
+              stroke="#d6d3d1"
+              strokeWidth={2}
+              dash={household.room_shape === "free" ? [10, 6] : undefined}
+              cornerRadius={8}
+            />
 
-          {household.landmarks.map((lm) => {
-            const style = LANDMARK_STYLE[lm.type];
-            // Pendant le redimensionnement, la taille suit la poignée sans
-            // attendre l'aller-retour serveur.
-            const w = resizingLandmark?.id === lm.id ? resizingLandmark.w : lm.w;
-            const h = resizingLandmark?.id === lm.id ? resizingLandmark.h : lm.h;
+            {household.landmarks.map((lm) => {
+              const style = LANDMARK_STYLE[lm.type];
+              // Pendant le redimensionnement, la taille suit la poignée sans
+              // attendre l'aller-retour serveur.
+              const w = resizingLandmark?.id === lm.id ? resizingLandmark.w : lm.w;
+              const h = resizingLandmark?.id === lm.id ? resizingLandmark.h : lm.h;
+              const selected = editing && selectedId === lm.id;
+              const select = (e: KonvaEventObject<Event>) => {
+                e.cancelBubble = true;
+                if (editing && !isGhostTap()) setSelectedId(lm.id);
+              };
 
-            return (
-              <Group
-                key={lm.id}
-                x={clampX(lm.pos_x)}
-                y={clampY(lm.pos_y)}
-                draggable
-                onDragEnd={(e) => onLandmarkDragEnd(lm.id, e.target.x(), e.target.y())}
-              >
-                <Rect width={w} height={h} fill={style.fill} stroke={style.stroke} strokeWidth={1.5} cornerRadius={8} dash={[4, 4]} />
-                <Text text={style.emoji} fontSize={18} width={w} align="center" y={h / 2 - 22} />
-                <Text text={lm.label} fontSize={11} fill="#57534e" width={w} align="center" y={h / 2 - 2} fontStyle="600" />
-
+              return (
                 <Group
-                  x={w - 9}
-                  y={-9}
-                  onClick={(e) => {
-                    e.cancelBubble = true;
-                    onLandmarkRemove(lm.id);
-                  }}
-                  onTap={(e) => {
-                    e.cancelBubble = true;
-                    onLandmarkRemove(lm.id);
-                  }}
-                >
-                  <Circle radius={9} fill="#ffffff" stroke={style.stroke} strokeWidth={1.5} />
-                  <Text text="×" fontSize={14} fill="#78716c" width={18} height={18} offsetX={9} offsetY={10} align="center" verticalAlign="middle" listening={false} />
-                </Group>
-
-                {/* Poignée de redimensionnement (coin bas-droit) */}
-                <Circle
-                  x={w}
-                  y={h}
-                  radius={9}
-                  fill="#ffffff"
-                  stroke={style.stroke}
-                  strokeWidth={1.5}
-                  draggable
-                  onDragStart={(e) => {
-                    e.cancelBubble = true;
-                  }}
-                  onDragMove={(e) => {
-                    e.cancelBubble = true;
-                    setResizingLandmark({
-                      id: lm.id,
-                      w: Math.max(50, Math.round(e.target.x())),
-                      h: Math.max(36, Math.round(e.target.y())),
-                    });
-                  }}
+                  key={lm.id}
+                  x={clampX(lm.pos_x)}
+                  y={clampY(lm.pos_y)}
+                  draggable={editing}
+                  dragDistance={6}
+                  onDragStart={() => setSelectedId(lm.id)}
                   onDragEnd={(e) => {
                     e.cancelBubble = true;
-                    const nw = Math.max(50, Math.round(e.target.x()));
-                    const nh = Math.max(36, Math.round(e.target.y()));
-                    setResizingLandmark(null);
-                    onLandmarkResize(lm.id, nw, nh);
+                    onLandmarkDragEnd(lm.id, e.target.x(), e.target.y());
                   }}
-                />
-              </Group>
-            );
-          })}
+                  onClick={select}
+                  onTap={select}
+                >
+                  <Rect width={w} height={h} fill={style.fill} stroke={style.stroke} strokeWidth={1.5} cornerRadius={8} dash={[4, 4]} />
+                  <Text text={style.emoji} fontSize={18} width={w} align="center" y={h / 2 - 22} listening={false} />
+                  <Text text={lm.label} fontSize={11} fill="#57534e" width={w} align="center" y={h / 2 - 2} fontStyle="600" listening={false} />
 
-          {tables.map((table) => {
-            const seats = getSeatPositions(table.type, table.capacity);
-            const seatedCount = seats.filter((s) => guestBySeat.has(`${table.id}|${s.index}`)).length;
-            const full = seatedCount >= table.capacity;
-
-            const scale = resizingTable?.id === table.id ? resizingTable.scale : (table.scale ?? 1);
-            const halfW =
-              table.type === "round"
-                ? ROUND_TABLE_RADIUS + SEAT_GAP + SEAT_RADIUS
-                : RECT_TABLE_WIDTH / 2 + SEAT_GAP + SEAT_RADIUS;
-            const halfH =
-              table.type === "round"
-                ? ROUND_TABLE_RADIUS + SEAT_GAP + SEAT_RADIUS
-                : RECT_TABLE_HEIGHT / 2 + SEAT_GAP + SEAT_RADIUS;
-
-            return (
-              <Group
-                key={table.id}
-                x={clampX(table.pos_x)}
-                y={clampY(table.pos_y)}
-                draggable
-                onDragEnd={(e) => onTableDragEnd(table.id, e.target.x(), e.target.y())}
-              >
-                <Group scaleX={scale} scaleY={scale}>
-                {table.type === "round" ? (
-                  <Circle radius={ROUND_TABLE_RADIUS} fill="#fde8ea" stroke={full ? "#e11d48" : "#fb7185"} strokeWidth={2} />
-                ) : (
-                  <Rect
-                    width={RECT_TABLE_WIDTH}
-                    height={RECT_TABLE_HEIGHT}
-                    offsetX={RECT_TABLE_WIDTH / 2}
-                    offsetY={RECT_TABLE_HEIGHT / 2}
-                    fill="#fde8ea"
-                    stroke={full ? "#e11d48" : "#fb7185"}
-                    strokeWidth={2}
-                    cornerRadius={6}
-                  />
-                )}
-
-                <Text
-                  text={table.name}
-                  fontSize={12}
-                  fontStyle="600"
-                  fill="#44403c"
-                  width={140}
-                  offsetX={70}
-                  align="center"
-                  y={-6}
-                />
-                <Text
-                  text={`${seatedCount}/${table.capacity}`}
-                  fontSize={10}
-                  fill={full ? "#e11d48" : "#78716c"}
-                  width={140}
-                  offsetX={70}
-                  align="center"
-                  y={8}
-                />
-
-                {seats.map((seat) => {
-                  const occupant = guestBySeat.get(`${table.id}|${seat.index}`);
-                  return (
-                    <Group key={seat.index} x={seat.x} y={seat.y}>
-                      <Circle
-                        name={`seat|${table.id}|${seat.index}`}
-                        radius={SEAT_RADIUS}
-                        fill={occupant ? "#e11d48" : "#ffffff"}
-                        stroke={occupant ? "#e11d48" : selectedGuestId ? "#fb7185" : "#d6d3d1"}
-                        strokeWidth={1.5}
-                        onClick={() => handleSeatClick(table.id, seat.index)}
-                        onTap={() => handleSeatClick(table.id, seat.index)}
-                      />
-                      {occupant && (
+                  {selected && (
+                    <>
+                      <Group
+                        x={w}
+                        y={0}
+                        onClick={(e) => {
+                          e.cancelBubble = true;
+                          onLandmarkRemove(lm.id);
+                        }}
+                        onTap={(e) => {
+                          e.cancelBubble = true;
+                          if (!isGhostTap()) onLandmarkRemove(lm.id);
+                        }}
+                      >
+                        <Circle radius={handleRadius} fill="#ffffff" stroke={style.stroke} strokeWidth={1.5 / scale} />
                         <Text
-                          text={occupant.first_name.charAt(0).toUpperCase()}
-                          fontSize={11}
-                          fill="#ffffff"
-                          width={SEAT_RADIUS * 2}
-                          height={SEAT_RADIUS * 2}
-                          offsetX={SEAT_RADIUS}
-                          offsetY={SEAT_RADIUS - 1}
+                          text="×"
+                          fontSize={handleRadius * 1.5}
+                          fill="#78716c"
+                          width={handleRadius * 2}
+                          height={handleRadius * 2}
+                          offsetX={handleRadius}
+                          offsetY={handleRadius * 1.05}
                           align="center"
                           verticalAlign="middle"
                           listening={false}
                         />
-                      )}
-                    </Group>
-                  );
-                })}
-                </Group>
+                      </Group>
 
-                {/* Poignée de redimensionnement de la table */}
-                <Circle
-                  x={halfW * scale}
-                  y={halfH * scale}
-                  radius={9}
-                  fill="#ffffff"
-                  stroke="#fb7185"
-                  strokeWidth={1.5}
-                  draggable
-                  onDragStart={(e) => {
-                    e.cancelBubble = true;
-                  }}
-                  onDragMove={(e) => {
-                    e.cancelBubble = true;
-                    const next = (e.target.x() / halfW + e.target.y() / halfH) / 2;
-                    setResizingTable({ id: table.id, scale: Math.min(2.5, Math.max(0.5, next)) });
-                  }}
+                      {/* Poignée de redimensionnement (coin bas-droit) */}
+                      <Circle
+                        x={w}
+                        y={h}
+                        radius={handleRadius}
+                        fill="#ffffff"
+                        stroke={style.stroke}
+                        strokeWidth={1.5 / scale}
+                        draggable
+                        onDragStart={(e) => {
+                          e.cancelBubble = true;
+                        }}
+                        onDragMove={(e) => {
+                          e.cancelBubble = true;
+                          setResizingLandmark({
+                            id: lm.id,
+                            w: Math.max(50, Math.round(e.target.x())),
+                            h: Math.max(36, Math.round(e.target.y())),
+                          });
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          const nw = Math.max(50, Math.round(e.target.x()));
+                          const nh = Math.max(36, Math.round(e.target.y()));
+                          setResizingLandmark(null);
+                          onLandmarkResize(lm.id, nw, nh);
+                        }}
+                      />
+                    </>
+                  )}
+                </Group>
+              );
+            })}
+
+            {tables.map((table) => {
+              const seats = getSeatPositions(table.type, table.capacity);
+              const seatedCount = seats.filter((s) => guestBySeat.has(`${table.id}|${s.index}`)).length;
+              const full = seatedCount >= table.capacity;
+
+              const tableScale = resizingTable?.id === table.id ? resizingTable.scale : (table.scale ?? 1);
+              const rectWidth = getRectTableWidth(table.capacity);
+              const footprint = getTableFootprint(table.type, table.capacity);
+              const halfW = footprint.width / 2;
+              const halfH = footprint.height / 2;
+              const selected = editing && selectedId === table.id;
+
+              function tap(e: KonvaEventObject<Event>) {
+                e.cancelBubble = true;
+                if (isGhostTap()) return;
+                if (editing) {
+                  setSelectedId(table.id);
+                  return;
+                }
+                const seat = seatFromTarget(e.target);
+                onTableTap(table.id, seat ? seat.seatIndex : null);
+              }
+
+              return (
+                <Group
+                  key={table.id}
+                  id={table.id}
+                  name="table"
+                  x={clampX(table.pos_x)}
+                  y={clampY(table.pos_y)}
+                  draggable={editing}
+                  dragDistance={6}
+                  onDragStart={() => setSelectedId(table.id)}
                   onDragEnd={(e) => {
                     e.cancelBubble = true;
-                    const next = (e.target.x() / halfW + e.target.y() / halfH) / 2;
-                    const clamped = Math.min(2.5, Math.max(0.5, next));
-                    setResizingTable(null);
-                    onTableResize(table.id, Number(clamped.toFixed(2)));
+                    onTableDragEnd(table.id, e.target.x(), e.target.y());
                   }}
-                />
-              </Group>
-            );
-          })}
-        </Layer>
-      </Stage>
+                  onClick={tap}
+                  onTap={tap}
+                >
+                  <Group scaleX={tableScale} scaleY={tableScale}>
+                    {/* Zone de toucher élargie : toute l'emprise de la table, chaises comprises. */}
+                    <Rect
+                      x={-halfW}
+                      y={-halfH}
+                      width={halfW * 2}
+                      height={halfH * 2}
+                      fill="transparent"
+                    />
+                    {table.type === "round" ? (
+                      <Circle radius={ROUND_TABLE_RADIUS} fill="#fde8ea" stroke={full ? "#e11d48" : "#fb7185"} strokeWidth={2} />
+                    ) : (
+                      <Rect
+                        width={rectWidth}
+                        height={RECT_TABLE_HEIGHT}
+                        offsetX={rectWidth / 2}
+                        offsetY={RECT_TABLE_HEIGHT / 2}
+                        fill="#fde8ea"
+                        stroke={full ? "#e11d48" : "#fb7185"}
+                        strokeWidth={2}
+                        cornerRadius={6}
+                      />
+                    )}
+
+                    <Text
+                      text={table.name}
+                      fontSize={13}
+                      fontStyle="600"
+                      fill="#44403c"
+                      width={ROUND_TABLE_RADIUS * 2 - 6}
+                      offsetX={ROUND_TABLE_RADIUS - 3}
+                      align="center"
+                      y={-9}
+                      wrap="none"
+                      ellipsis
+                      listening={false}
+                    />
+                    <Text
+                      text={`${seatedCount}/${table.capacity}`}
+                      fontSize={11}
+                      fill={full ? "#e11d48" : "#78716c"}
+                      width={80}
+                      offsetX={40}
+                      align="center"
+                      y={7}
+                      listening={false}
+                    />
+
+                    {seats.map((seat) => {
+                      const occupant = guestBySeat.get(`${table.id}|${seat.index}`);
+                      // Prénom posé à l'extérieur de la chaise : sur le côté pour les
+                      // chaises latérales, au-dessus ou en dessous sinon.
+                      const len = Math.hypot(seat.x, seat.y) || 1;
+                      const ux = seat.x / len;
+                      const uy = seat.y / len;
+                      const sideways = Math.abs(ux) > 0.6;
+                      const label = sideways
+                        ? { x: Math.sign(ux) * (SEAT_RADIUS + 3), y: -5 + uy * 4, align: ux > 0 ? "left" : "right", offsetX: ux > 0 ? 0 : 70 }
+                        : { x: 0, y: Math.sign(uy) * (SEAT_RADIUS + 7) - 5, align: "center", offsetX: 35 };
+                      return (
+                        <Group key={seat.index} x={seat.x} y={seat.y}>
+                          <Circle
+                            name={`seat|${table.id}|${seat.index}`}
+                            radius={SEAT_RADIUS}
+                            fill={occupant ? "#e11d48" : "#ffffff"}
+                            stroke={occupant ? "#e11d48" : selectedGuestId ? "#fb7185" : "#d6d3d1"}
+                            strokeWidth={1.5}
+                          />
+                          {occupant && (
+                            <Text
+                              text={occupant.first_name.charAt(0).toUpperCase()}
+                              fontSize={12}
+                              fontStyle="600"
+                              fill="#ffffff"
+                              width={SEAT_RADIUS * 2}
+                              height={SEAT_RADIUS * 2}
+                              offsetX={SEAT_RADIUS}
+                              offsetY={SEAT_RADIUS - 1}
+                              align="center"
+                              verticalAlign="middle"
+                              listening={false}
+                            />
+                          )}
+                          {occupant && showNames && (
+                            <Text
+                              x={label.x}
+                              y={label.y}
+                              text={occupant.first_name}
+                              fontSize={9}
+                              fill="#44403c"
+                              width={70}
+                              offsetX={label.offsetX}
+                              align={label.align}
+                              wrap="none"
+                              ellipsis
+                              listening={false}
+                            />
+                          )}
+                        </Group>
+                      );
+                    })}
+                  </Group>
+
+                  {selected && (
+                    <Rect
+                      x={-halfW * tableScale - 4 / scale}
+                      y={-halfH * tableScale - 4 / scale}
+                      width={halfW * 2 * tableScale + 8 / scale}
+                      height={halfH * 2 * tableScale + 8 / scale}
+                      stroke="#fb7185"
+                      strokeWidth={1.5 / scale}
+                      dash={[6 / scale, 4 / scale]}
+                      cornerRadius={8 / scale}
+                      listening={false}
+                    />
+                  )}
+
+                  {/* Poignée de redimensionnement de la table */}
+                  {selected && (
+                    <Circle
+                      x={halfW * tableScale}
+                      y={halfH * tableScale}
+                      radius={handleRadius}
+                      fill="#ffffff"
+                      stroke="#fb7185"
+                      strokeWidth={1.5 / scale}
+                      draggable
+                      onDragStart={(e) => {
+                        e.cancelBubble = true;
+                      }}
+                      onDragMove={(e) => {
+                        e.cancelBubble = true;
+                        const next = (e.target.x() / halfW + e.target.y() / halfH) / 2;
+                        setResizingTable({ id: table.id, scale: Math.min(2.5, Math.max(0.5, next)) });
+                      }}
+                      onDragEnd={(e) => {
+                        e.cancelBubble = true;
+                        const next = (e.target.x() / halfW + e.target.y() / halfH) / 2;
+                        const clamped = Math.min(2.5, Math.max(0.5, next));
+                        setResizingTable(null);
+                        onTableResize(table.id, Number(clamped.toFixed(2)));
+                      }}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                      }}
+                      onTap={(e) => {
+                        e.cancelBubble = true;
+                      }}
+                    />
+                  )}
+                </Group>
+              );
+            })}
+          </Layer>
+        </Stage>
+      )}
+
+      <div className="absolute right-2 bottom-2 flex flex-col gap-1.5">
+        <Button size="icon" variant="outline" className="size-10 bg-background/95 shadow-sm" onClick={() => zoomButton(ZOOM_STEP)} aria-label="Zoomer">
+          <Plus className="size-5" />
+        </Button>
+        <Button size="icon" variant="outline" className="size-10 bg-background/95 shadow-sm" onClick={() => zoomButton(1 / ZOOM_STEP)} aria-label="Dézoomer">
+          <Minus className="size-5" />
+        </Button>
+        <Button size="icon" variant="outline" className="size-10 bg-background/95 shadow-sm" onClick={() => setView(fitView())} aria-label="Voir toute la salle">
+          <Maximize className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,8 @@ import { useTables } from "@/hooks/use-tables";
 import { Toolbar } from "@/components/floorplan/toolbar";
 import { UnplacedGuestsPanel } from "@/components/floorplan/unplaced-guests-panel";
 import { TablesList } from "@/components/floorplan/tables-list";
+import { TableSeatsDialog } from "@/components/floorplan/table-seats-dialog";
+import type { FloorplanMode } from "@/components/floorplan/canvas";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Landmark, RoomShape } from "@/types/database";
 import { toast } from "sonner";
@@ -17,7 +19,7 @@ import { exportTablesPdf } from "@/lib/export-tables-pdf";
 
 const FloorplanCanvas = dynamic(() => import("@/components/floorplan/canvas").then((m) => m.FloorplanCanvas), {
   ssr: false,
-  loading: () => <Skeleton className="w-full rounded-lg" style={{ height: "min(70vh, 640px)" }} />,
+  loading: () => <Skeleton className="h-[62svh] w-full rounded-lg md:h-[min(75vh,720px)]" />,
 });
 
 export default function FloorplanPage() {
@@ -25,7 +27,8 @@ export default function FloorplanPage() {
   const { guests, loading: guestsLoading, updateGuest } = useGuests(household?.id);
   const { tables, loading: tablesLoading, addTable, updateTable, deleteTable } = useTables(household?.id);
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [mode, setMode] = useState<FloorplanMode>("place");
+  const [openSeats, setOpenSeats] = useState<{ tableId: string; seat: number | null } | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const unplacedGuests = guests.filter((g) => !g.table_id);
@@ -39,6 +42,38 @@ export default function FloorplanPage() {
     setSelectedGuestId(null);
     const guest = findGuest(guestId);
     if (guest) toast.success(`${guest.first_name} placé(e)`);
+  }
+
+  /** Place demandée si elle est libre, sinon la première libre de la table. */
+  function freeSeatFor(tableId: string, wanted: number | null): number | null {
+    const table = tables.find((t) => t.id === tableId);
+    if (!table) return null;
+    const taken = new Set(
+      guests.filter((g) => g.table_id === tableId && g.seat_index != null).map((g) => g.seat_index!)
+    );
+    if (wanted !== null && wanted < table.capacity && !taken.has(wanted)) return wanted;
+    for (let i = 0; i < table.capacity; i++) if (!taken.has(i)) return i;
+    return null;
+  }
+
+  function placeGuest(guestId: string, tableId: string, wanted: number | null) {
+    const seat = freeSeatFor(tableId, wanted);
+    if (seat === null) {
+      toast.error("Cette table est complète.");
+      return;
+    }
+    handleAssignSeat(guestId, tableId, seat);
+  }
+
+  function handleTableTap(tableId: string, seatIndex: number | null) {
+    // Un invité choisi dans la liste : on l'assoit directement.
+    if (selectedGuestId) {
+      placeGuest(selectedGuestId, tableId, seatIndex);
+      return;
+    }
+    const seatIsFree =
+      seatIndex !== null && !guests.some((g) => g.table_id === tableId && g.seat_index === seatIndex);
+    setOpenSeats({ tableId, seat: seatIsFree ? seatIndex : null });
   }
 
   async function handleUnassignGuest(guestId: string) {
@@ -102,13 +137,13 @@ export default function FloorplanPage() {
       </div>
 
       <Toolbar
+        mode={mode}
+        onModeChange={setMode}
         roomShape={household.room_shape}
         onRoomShapeChange={handleRoomShapeChange}
         onAddLandmark={handleAddLandmark}
         onAddTable={(input) => addTable(input).then(() => undefined)}
         nextTableNumber={tables.length + 1}
-        zoom={zoom}
-        onZoomChange={setZoom}
         landmarkCount={household.landmarks.length}
       />
 
@@ -119,16 +154,16 @@ export default function FloorplanPage() {
       <div className="flex flex-1 flex-col gap-4 p-4 md:flex-row md:p-6">
         <div className="min-w-0 flex-1">
           {loading ? (
-            <Skeleton className="w-full rounded-lg" style={{ height: "min(70vh, 640px)" }} />
+            <Skeleton className="h-[62svh] w-full rounded-lg md:h-[min(75vh,720px)]" />
           ) : (
             <FloorplanCanvas
               household={household}
               tables={tables}
               guests={guests}
+              mode={mode}
               selectedGuestId={selectedGuestId}
-              zoom={zoom}
-              onAssignSeat={handleAssignSeat}
-              onUnassignGuest={handleUnassignGuest}
+              onTableTap={handleTableTap}
+              onDropGuest={placeGuest}
               onTableDragEnd={(id, x, y) => updateTable(id, { pos_x: x, pos_y: y })}
               onTableResize={(id, scale) => updateTable(id, { scale })}
               onLandmarkDragEnd={handleLandmarkDragEnd}
@@ -155,6 +190,17 @@ export default function FloorplanPage() {
           </div>
         </div>
       </div>
+
+      <TableSeatsDialog
+        table={openSeats ? (tables.find((t) => t.id === openSeats.tableId) ?? null) : null}
+        initialSeat={openSeats?.seat ?? null}
+        tables={tables}
+        guests={guests}
+        onClose={() => setOpenSeats(null)}
+        onAssign={(guestId, tableId, seat) => handleAssignSeat(guestId, tableId, seat)}
+        onUnassign={handleUnassignGuest}
+        onUpdateTable={updateTable}
+      />
     </div>
   );
 }

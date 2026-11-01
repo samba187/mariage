@@ -12,11 +12,19 @@ export const RECT_TABLE_HEIGHT = 60;
 export const SEAT_RADIUS = 14;
 export const SEAT_GAP = 22;
 
-export function getTableFootprint(type: TableType) {
+/** Une table rectangulaire s'allonge avec le nombre de places pour que les chaises ne se chevauchent pas. */
+export function getRectTableWidth(capacity: number) {
+  return Math.max(RECT_TABLE_WIDTH, Math.ceil(capacity / 2) * (SEAT_RADIUS * 2 + 8));
+}
+
+export function getTableFootprint(type: TableType, capacity: number) {
   if (type === "round") {
     return { width: (ROUND_TABLE_RADIUS + SEAT_GAP + SEAT_RADIUS) * 2, height: (ROUND_TABLE_RADIUS + SEAT_GAP + SEAT_RADIUS) * 2 };
   }
-  return { width: RECT_TABLE_WIDTH + (SEAT_GAP + SEAT_RADIUS) * 2, height: RECT_TABLE_HEIGHT + (SEAT_GAP + SEAT_RADIUS) * 2 };
+  return {
+    width: getRectTableWidth(capacity) + (SEAT_GAP + SEAT_RADIUS) * 2,
+    height: RECT_TABLE_HEIGHT + (SEAT_GAP + SEAT_RADIUS) * 2,
+  };
 }
 
 export function getSeatPositions(type: TableType, capacity: number): SeatPosition[] {
@@ -29,7 +37,7 @@ export function getSeatPositions(type: TableType, capacity: number): SeatPositio
   }
 
   // Rectangular: distribute seats along top and bottom edges primarily.
-  const halfW = RECT_TABLE_WIDTH / 2;
+  const halfW = getRectTableWidth(capacity) / 2;
   const halfH = RECT_TABLE_HEIGHT / 2;
   const seatY = halfH + SEAT_GAP;
   const perSide = Math.ceil(capacity / 2);
